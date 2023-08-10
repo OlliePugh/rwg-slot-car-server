@@ -26,25 +26,31 @@ interface Cooldown {
 }
 
 const SLOW_DOWN_LENGTH = 3; // seconds
-const SPEED_BAN_SPEED = 0;
+const SPEED_BAN_SPEED = 10;
 
 let receivedData = Buffer.alloc(0); // Buffer to store incoming data
 const speedBans: Cooldown[] = [{}, {}];
 let currentMatch: Match;
 
-serialport.on("data", (data: any) => {
+serialport.on("data", (data: Buffer) => {
   // Concatenate the received data with the existing buffer
   receivedData = Buffer.concat([receivedData, data]);
-  // Check if the end byte (0x0d) is present in the received data
-  const endByteIndex = receivedData.indexOf(0x0d);
 
-  // If the end byte is found, process the complete message
-  if (endByteIndex !== -1) {
-    const completeMessage = receivedData.slice(0, endByteIndex + 1);
-    processMessage(completeMessage);
+  while (receivedData.length > 0) {
+    // Check if the end byte (0x0d) is present in the received data
+    const endByteIndex = receivedData.indexOf(0x0d);
 
-    // Remove the processed message from the buffer
-    receivedData = receivedData.slice(endByteIndex + 1);
+    // If the end byte is found, process the complete message
+    if (endByteIndex !== -1) {
+      const completeMessage = receivedData.slice(0, endByteIndex + 1);
+      processMessage(completeMessage);
+
+      // Remove the processed message from the buffer
+      receivedData = receivedData.slice(endByteIndex + 1);
+    } else {
+      // No more complete messages to process, exit the loop for now
+      break;
+    }
   }
 });
 
@@ -64,12 +70,12 @@ const emitSpeedViolationMessage = (
   secondsRemaining: number,
   playerIndex: number
 ) => {
-  let message =
+  const message =
     secondsRemaining === 0
       ? ""
       : `VIRTUAL SPIN OFF!\nRegain controls in ${secondsRemaining}`;
 
-  currentMatch.getPlayers()[playerIndex].updateUserInterface({
+  currentMatch.getPlayers()[playerIndex]?.updateUserInterface({
     "speed-violation-text": {
       extraData: {
         message,
@@ -112,10 +118,12 @@ const processMessage = (message: Uint8Array) => {
 
     default:
       console.log(`Unknown event key ${message[0]}`);
+      console.log(new TextDecoder().decode(message));
       break;
   }
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 serialport.on("error", (err: any) => {
   console.error("Serial port error:", err.message);
 });
@@ -148,12 +156,12 @@ const io = new SocketServer(httpServer, {
 });
 
 const gameConfig: RwgConfig = {
-  id: "racing-cars",
+  id: "slot-cars",
   queueServer: "https://queue.ollieq.co.uk",
-  description: "Race remote control cars from somewhere in the world!",
-  name: "Online Remote Control Car Racing",
+  description: "Race slot cars from anywhere in the world!",
+  name: "Slot Car Racing",
   authenticationRequired: false,
-  // timeLimit: 10,
+  // timeLimit: 60,
   userInterface: [
     {
       id: "control-slider",

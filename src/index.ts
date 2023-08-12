@@ -6,7 +6,6 @@ import {
   RwgGame,
   CONTROL_TYPE,
   ControlEvent,
-  Match,
   ELEMENT_TYPE,
 } from "@OlliePugh/rwg-game";
 import { Server as SocketServer } from "socket.io";
@@ -18,141 +17,6 @@ import http from "http";
 const serialport = new SerialPort({
   path: "COM7",
   baudRate: 115200,
-});
-
-interface Cooldown {
-  currentTimeout?: ReturnType<typeof setTimeout>;
-  lastRecordedSpeed?: number;
-}
-
-const SLOW_DOWN_LENGTH = 3; // seconds
-const SPEED_BAN_SPEED = 10;
-
-let receivedData = Buffer.alloc(0); // Buffer to store incoming data
-const speedBans: Cooldown[] = [{}, {}];
-let currentMatch: Match;
-
-serialport.on("data", (data: Buffer) => {
-  // Concatenate the received data with the existing buffer
-  receivedData = Buffer.concat([receivedData, data]);
-
-  while (receivedData.length > 0) {
-    // Check if the end byte (0x0d) is present in the received data
-    const endByteIndex = receivedData.indexOf(0x0d);
-
-    // If the end byte is found, process the complete message
-    if (endByteIndex !== -1) {
-      const completeMessage = receivedData.slice(0, endByteIndex + 1);
-      processMessage(completeMessage);
-
-      // Remove the processed message from the buffer
-      receivedData = receivedData.slice(endByteIndex + 1);
-    } else {
-      // No more complete messages to process, exit the loop for now
-      break;
-    }
-  }
-});
-
-const speedViolationCleared = (playerIndex: number) => {
-  delete speedBans[playerIndex].currentTimeout;
-  if (speedBans[playerIndex].lastRecordedSpeed != null) {
-    writeSpeed(speedBans[playerIndex].lastRecordedSpeed!, playerIndex == 0);
-  }
-};
-
-const commitSpeedViolation = (playerIndex: number) => {
-  emitSpeedViolationMessage(SLOW_DOWN_LENGTH, playerIndex);
-  writeSpeed(SPEED_BAN_SPEED, playerIndex == 0);
-};
-
-const emitSpeedViolationMessage = (
-  secondsRemaining: number,
-  playerIndex: number
-) => {
-  const message =
-    secondsRemaining === 0
-      ? ""
-      : `VIRTUAL SPIN OFF!\nRegain controls in ${secondsRemaining}`;
-
-  currentMatch.getPlayers()[playerIndex]?.updateUserInterface({
-    "speed-violation-text": {
-      extraData: {
-        message,
-      },
-    },
-  });
-
-  if (secondsRemaining-- > 0) {
-    speedBans[playerIndex].currentTimeout = setTimeout(() => {
-      emitSpeedViolationMessage(secondsRemaining, playerIndex);
-    }, 1000);
-  }
-
-  if (secondsRemaining == -1) {
-    // the penalty has been cleared
-    speedViolationCleared(playerIndex);
-  }
-};
-
-const processMessage = (message: Uint8Array) => {
-  const isPlayer1 = message[0] % 2 == 1;
-  const playerIndex = isPlayer1 ? 0 : 1;
-  const event = message[0] - playerIndex;
-  switch (event) {
-    case SERIAL_EVENT_KEYS.SPEED_VIOLATION:
-      if (speedBans[playerIndex].currentTimeout == undefined) {
-        commitSpeedViolation(playerIndex);
-      }
-
-      console.log(`speed violation for player ${isPlayer1 ? 1 : 2}`);
-      break;
-
-    case SERIAL_EVENT_KEYS.CAR_DISMOUNT:
-      // Handle CAR_DISMOUNT message
-      break;
-
-    case SERIAL_EVENT_KEYS.LAP_COMPLETE:
-      console.log("lap complete");
-      break;
-
-    default:
-      console.log(`Unknown event key ${message[0]}`);
-      console.log(new TextDecoder().decode(message));
-      break;
-  }
-};
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-serialport.on("error", (err: any) => {
-  console.error("Serial port error:", err.message);
-});
-
-serialport.on("open", () => {
-  console.log("Serial port opened");
-});
-
-const SERIAL_EVENT_KEYS = {
-  CONTROL: 0x01,
-  SPEED_VIOLATION: 0x03,
-  CAR_DISMOUNT: 0x05,
-  LAP_COMPLETE: 0x07,
-  FINISH_MESSAGE: 0x0d,
-};
-
-const app = express();
-
-app.use(
-  cors({
-    origin: "https://play.ollieq.co.uk",
-  })
-);
-
-const httpServer = http.createServer(app);
-const io = new SocketServer(httpServer, {
-  cors: {
-    origin: "https://play.ollieq.co.uk",
-  },
 });
 
 const gameConfig: RwgConfig = {
@@ -191,6 +55,17 @@ const gameConfig: RwgConfig = {
       size: 1,
       extraData: { message: "" },
     },
+    {
+      id: "lap-counter",
+      type: ELEMENT_TYPE.text,
+      position: {
+        x: 0.8,
+        y: 0.1,
+      },
+      displayOnDesktop: true,
+      size: 1,
+      extraData: { message: "Lap: 1" },
+    },
   ],
   countdownSeconds: 0,
   controllables: [
@@ -219,11 +94,160 @@ const gameConfig: RwgConfig = {
   ],
 };
 
+const app = express();
+
+app.use(
+  cors({
+    origin: "https://play.ollieq.co.uk",
+  })
+);
+
+const httpServer = http.createServer(app);
+const io = new SocketServer(httpServer, {
+  cors: {
+    origin: "https://play.ollieq.co.uk",
+  },
+});
 const gameServer = new RwgGame(gameConfig, httpServer, app, io);
 
-gameServer.on(RWG_EVENT.MATCH_STATE_CHANGE, (newState, match) => {
+interface Cooldown {
+  currentTimeout?: ReturnType<typeof setTimeout>;
+  lastRecordedSpeed?: number;
+}
+
+const SLOW_DOWN_LENGTH = 3; // seconds
+const SPEED_BAN_SPEED = 10;
+
+let receivedData = Buffer.alloc(0); // Buffer to store incoming data
+const speedBans: Cooldown[] = [{}, {}];
+const lapCounter = [1, 1];
+
+serialport.on("data", (data: Buffer) => {
+  // Concatenate the received data with the existing buffer
+  receivedData = Buffer.concat([receivedData, data]);
+
+  while (receivedData.length > 0) {
+    // Check if the end byte (0x0d) is present in the received data
+    const endByteIndex = receivedData.indexOf(0x0d);
+
+    // If the end byte is found, process the complete message
+    if (endByteIndex !== -1) {
+      const completeMessage = receivedData.slice(0, endByteIndex + 1);
+      processMessage(completeMessage);
+
+      // Remove the processed message from the buffer
+      receivedData = receivedData.slice(endByteIndex + 1);
+    } else {
+      // No more complete messages to process, exit the loop for now
+      break;
+    }
+  }
+});
+
+const speedViolationCleared = (playerIndex: number) => {
+  delete speedBans[playerIndex].currentTimeout;
+  if (speedBans[playerIndex].lastRecordedSpeed != null) {
+    writeSpeed(speedBans[playerIndex].lastRecordedSpeed!, playerIndex == 0);
+  }
+};
+
+const commitSpeedViolation = (playerIndex: number) => {
+  emitSpeedViolationMessage(SLOW_DOWN_LENGTH, playerIndex);
+  writeSpeed(SPEED_BAN_SPEED, playerIndex == 0);
+};
+
+const emitLapUpdate = (playerIndex: number) => {
+  const player = gameServer.currentMatch.getPlayers()[playerIndex];
+
+  player.updateUserInterface({
+    "lap-counter": {
+      extraData: {
+        message: `Lap ${++lapCounter[playerIndex]}`,
+      },
+    },
+  });
+};
+
+const emitSpeedViolationMessage = (
+  secondsRemaining: number,
+  playerIndex: number
+) => {
+  const message =
+    secondsRemaining === 0
+      ? ""
+      : `VIRTUAL SPIN OFF!\nRegain controls in ${secondsRemaining}`;
+
+  gameServer.currentMatch.getPlayers()[playerIndex]?.updateUserInterface({
+    "speed-violation-text": {
+      extraData: {
+        message,
+      },
+    },
+  });
+
+  if (secondsRemaining-- > 0) {
+    speedBans[playerIndex].currentTimeout = setTimeout(() => {
+      emitSpeedViolationMessage(secondsRemaining, playerIndex);
+    }, 1000);
+  }
+
+  if (secondsRemaining == -1) {
+    // the penalty has been cleared
+    speedViolationCleared(playerIndex);
+  }
+};
+
+const processMessage = (message: Uint8Array) => {
+  const isPlayer1 = message[0] % 2 == 1;
+  const playerIndex = isPlayer1 ? 0 : 1;
+  const event = message[0] - playerIndex;
+  switch (event) {
+    case SERIAL_EVENT_KEYS.SPEED_VIOLATION:
+      if (speedBans[playerIndex].currentTimeout == undefined) {
+        commitSpeedViolation(playerIndex);
+      }
+
+      console.log(`speed violation for player ${isPlayer1 ? 1 : 2}`);
+      break;
+
+    case SERIAL_EVENT_KEYS.CAR_DISMOUNT:
+      // Handle CAR_DISMOUNT message
+      break;
+
+    case SERIAL_EVENT_KEYS.LAP_COMPLETE:
+      console.log("lap update");
+      emitLapUpdate(playerIndex);
+
+      break;
+
+    default:
+      console.log(`Unknown event key ${message[0]}`);
+      console.log(new TextDecoder().decode(message));
+      break;
+  }
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+serialport.on("error", (err: any) => {
+  console.error("Serial port error:", err.message);
+});
+
+serialport.on("open", () => {
+  console.log("Serial port opened");
+});
+
+const SERIAL_EVENT_KEYS = {
+  CONTROL: 0x01,
+  SPEED_VIOLATION: 0x03,
+  CAR_DISMOUNT: 0x05,
+  LAP_COMPLETE: 0x07,
+  FINISH_MESSAGE: 0x0d,
+};
+
+gameServer.on(RWG_EVENT.MATCH_STATE_CHANGE, (newState) => {
   if (newState === MATCH_STATE.COUNTDOWN) {
-    currentMatch = match;
+    lapCounter[0] = 1;
+    lapCounter[1] = 1;
   }
   if (
     newState === MATCH_STATE.COMPLETED ||

@@ -14,8 +14,8 @@ import cors from "cors";
 import { SerialPort } from "serialport";
 import http from "http";
 
-const serialport = new SerialPort({
-  path: "COM7",
+const serialPort = new SerialPort({
+  path: "COM14",
   baudRate: 115200,
 });
 
@@ -46,7 +46,7 @@ const gameConfig: RwgConfig = {
     },
     {
       id: "speed-violation-text",
-      type: ELEMENT_TYPE.text,
+      type: ELEMENT_TYPE.TEXT,
       position: {
         x: 0.1,
         y: 0.1,
@@ -56,8 +56,19 @@ const gameConfig: RwgConfig = {
       extraData: { message: "" },
     },
     {
+      id: "car-determined-text",
+      type: ELEMENT_TYPE.TEXT,
+      position: {
+        x: 0.5,
+        y: 0.1,
+      },
+      displayOnDesktop: true,
+      size: 1,
+      extraData: { message: "Loading..." },
+    },
+    {
       id: "lap-counter",
-      type: ELEMENT_TYPE.text,
+      type: ELEMENT_TYPE.TEXT,
       position: {
         x: 0.8,
         y: 0.1,
@@ -80,17 +91,17 @@ const gameConfig: RwgConfig = {
         port: 8004,
       },
     },
-    // {
-    //   id: "car2",
-    //   onControl: (eventData) => {
-    //     onControl(eventData, false);
-    //   },
-    //   stream: {
-    //     address: "https://stream.ollieq.co.uk/janus",
-    //     id: 2,
-    //     port: 8005,
-    //   },
-    // },
+    {
+      id: "car2",
+      onControl: (eventData) => {
+        onControl(eventData, false);
+      },
+      stream: {
+        address: "stream.ollieq.co.uk",
+        id: 1,
+        port: 8004,
+      },
+    },
   ],
 };
 
@@ -122,13 +133,13 @@ let receivedData = Buffer.alloc(0); // Buffer to store incoming data
 const speedBans: Cooldown[] = [{}, {}];
 const lapCounter = [1, 1];
 
-serialport.on("data", (data: Buffer) => {
+serialPort.on("data", (data: Buffer) => {
   // Concatenate the received data with the existing buffer
   receivedData = Buffer.concat([receivedData, data]);
 
   while (receivedData.length > 0) {
-    // Check if the end byte (0x0d) is present in the received data
-    const endByteIndex = receivedData.indexOf(0x0d);
+    // Check if the end byte (0x0a) is present in the received data
+    const endByteIndex = receivedData.indexOf(SERIAL_EVENT_KEYS.FINISH_MESSAGE);
 
     // If the end byte is found, process the complete message
     if (endByteIndex !== -1) {
@@ -159,7 +170,7 @@ const commitSpeedViolation = (playerIndex: number) => {
 const emitLapUpdate = (playerIndex: number) => {
   const player = gameServer.currentMatch.getPlayers()[playerIndex];
 
-  player.updateUserInterface({
+  player?.updateUserInterface({
     "lap-counter": {
       extraData: {
         message: `Lap ${++lapCounter[playerIndex]}`,
@@ -206,20 +217,19 @@ const processMessage = (message: Uint8Array) => {
       if (speedBans[playerIndex].currentTimeout == undefined) {
         commitSpeedViolation(playerIndex);
       }
-
-      console.log(`speed violation for player ${isPlayer1 ? 1 : 2}`);
       break;
 
     case SERIAL_EVENT_KEYS.CAR_DISMOUNT:
-      // Handle CAR_DISMOUNT message
+      console.log("car has derailed");
       break;
 
     case SERIAL_EVENT_KEYS.LAP_COMPLETE:
-      console.log("lap update");
       emitLapUpdate(playerIndex);
 
       break;
-
+    case SERIAL_EVENT_KEYS.DIAGNOSTIC:
+      // console.log(JSON.parse(new TextDecoder().decode(message)));
+      break;
     default:
       console.log(`Unknown event key ${message[0]}`);
       console.log(new TextDecoder().decode(message));
@@ -228,11 +238,11 @@ const processMessage = (message: Uint8Array) => {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-serialport.on("error", (err: any) => {
+serialPort.on("error", (err: any) => {
   console.error("Serial port error:", err.message);
 });
 
-serialport.on("open", () => {
+serialPort.on("open", () => {
   console.log("Serial port opened");
 });
 
@@ -241,13 +251,23 @@ const SERIAL_EVENT_KEYS = {
   SPEED_VIOLATION: 0x03,
   CAR_DISMOUNT: 0x05,
   LAP_COMPLETE: 0x07,
-  FINISH_MESSAGE: 0x0d,
+  DIAGNOSTIC: 0x09,
+  FINISH_MESSAGE: 0x0a,
 };
 
-gameServer.on(RWG_EVENT.MATCH_STATE_CHANGE, (newState) => {
+gameServer.on(RWG_EVENT.MATCH_STATE_CHANGE, (newState, match) => {
   if (newState === MATCH_STATE.COUNTDOWN) {
     lapCounter[0] = 1;
     lapCounter[1] = 1;
+    match.getPlayers().forEach((player, index) =>
+      player.updateUserInterface({
+        "car-determined-text": {
+          extraData: {
+            message: `You are the ${index === 0 ? "Yellow" : "Black"} car`,
+          },
+        },
+      })
+    );
   }
   if (
     newState === MATCH_STATE.COMPLETED ||
@@ -260,7 +280,7 @@ gameServer.on(RWG_EVENT.MATCH_STATE_CHANGE, (newState) => {
     buffer[3] = SERIAL_EVENT_KEYS.CONTROL + 1;
     buffer[4] = 0x00;
     buffer[5] = SERIAL_EVENT_KEYS.FINISH_MESSAGE;
-    serialport.write(buffer);
+    serialPort.write(buffer);
   }
 });
 
@@ -269,7 +289,7 @@ const writeSpeed = (value: number, isPlayer1: boolean) => {
   buffer[0] = SERIAL_EVENT_KEYS.CONTROL + +!isPlayer1; // add one if not player1
   buffer[1] = new Uint8Array([value])[0];
   buffer[2] = SERIAL_EVENT_KEYS.FINISH_MESSAGE;
-  serialport.write(buffer);
+  serialPort.write(buffer);
 };
 
 const onControl = async (

@@ -2,8 +2,9 @@
     "compilerOptions": {
         "strict": true,
         "esModuleInterop": true,
-        "module": "ESNext",
-        "moduleResolution": "node"
+        "module": "CommonJS",
+        "moduleResolution": "node",
+        "outDir": "dist"
     },
     "include": [
         "./**/*.ts"

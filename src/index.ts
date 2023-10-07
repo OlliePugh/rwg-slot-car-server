@@ -1,109 +1,13 @@
 import express from "express";
-import {
-  MATCH_STATE,
-  RWG_EVENT,
-  RwgConfig,
-  RwgGame,
-  CONTROL_TYPE,
-  ControlEvent,
-  ELEMENT_TYPE,
-} from "@OlliePugh/rwg-game";
+import { MATCH_STATE, RWG_EVENT, RwgGame } from "@OlliePugh/rwg-game";
 import { Server as SocketServer } from "socket.io";
-
 import cors from "cors";
-import { SerialPort } from "serialport";
 import http from "http";
-
-const serialPort = new SerialPort({
-  path: "COM14",
-  baudRate: 115200,
-});
-
-const gameConfig: RwgConfig = {
-  id: "slot-cars",
-  queueServer: "https://queue.ollieq.co.uk",
-  description: "Race slot cars from anywhere in the world!",
-  name: "Slot Car Racing",
-  authenticationRequired: false,
-  // timeLimit: 60,
-  userInterface: [
-    {
-      id: "control-slider",
-      type: CONTROL_TYPE.SLIDER,
-      control: [
-        {
-          id: "control-slider",
-          inputMap: [],
-        },
-      ],
-      rateLimit: 10,
-      position: {
-        x: 0.5,
-        y: 0.8,
-      },
-      displayOnDesktop: true,
-      size: 0.5,
-    },
-    {
-      id: "speed-violation-text",
-      type: ELEMENT_TYPE.TEXT,
-      position: {
-        x: 0.1,
-        y: 0.1,
-      },
-      displayOnDesktop: true,
-      size: 1,
-      extraData: { message: "" },
-    },
-    {
-      id: "car-determined-text",
-      type: ELEMENT_TYPE.TEXT,
-      position: {
-        x: 0.5,
-        y: 0.1,
-      },
-      displayOnDesktop: true,
-      size: 1,
-      extraData: { message: "Loading..." },
-    },
-    {
-      id: "lap-counter",
-      type: ELEMENT_TYPE.TEXT,
-      position: {
-        x: 0.8,
-        y: 0.1,
-      },
-      displayOnDesktop: true,
-      size: 1,
-      extraData: { message: "Lap: 1" },
-    },
-  ],
-  countdownSeconds: 0,
-  controllables: [
-    {
-      id: "car1",
-      onControl: (eventData) => {
-        onControl(eventData, true);
-      },
-      stream: {
-        address: "stream.ollieq.co.uk",
-        id: 1,
-        port: 8004,
-      },
-    },
-    {
-      id: "car2",
-      onControl: (eventData) => {
-        onControl(eventData, false);
-      },
-      stream: {
-        address: "stream.ollieq.co.uk",
-        id: 1,
-        port: 8004,
-      },
-    },
-  ],
-};
+import generateConfig from "./game-config";
+import { stopCars } from "./serial-handler";
+import { EVENTS, eventEmitter } from "./event-listener";
+import { lapCounter, speedBans } from "./globals";
+import "./control-handler";
 
 const app = express();
 
@@ -119,54 +23,8 @@ const io = new SocketServer(httpServer, {
     origin: "https://play.ollieq.co.uk",
   },
 });
-const gameServer = new RwgGame(gameConfig, httpServer, app, io);
 
-interface Cooldown {
-  currentTimeout?: ReturnType<typeof setTimeout>;
-  lastRecordedSpeed?: number;
-}
-
-const SLOW_DOWN_LENGTH = 3; // seconds
-const SPEED_BAN_SPEED = 10;
-
-let receivedData = Buffer.alloc(0); // Buffer to store incoming data
-const speedBans: Cooldown[] = [{}, {}];
-const lapCounter = [1, 1];
-
-serialPort.on("data", (data: Buffer) => {
-  // Concatenate the received data with the existing buffer
-  receivedData = Buffer.concat([receivedData, data]);
-
-  while (receivedData.length > 0) {
-    // Check if the end byte (0x0a) is present in the received data
-    const endByteIndex = receivedData.indexOf(SERIAL_EVENT_KEYS.FINISH_MESSAGE);
-
-    // If the end byte is found, process the complete message
-    if (endByteIndex !== -1) {
-      const completeMessage = receivedData.slice(0, endByteIndex + 1);
-      processMessage(completeMessage);
-
-      // Remove the processed message from the buffer
-      receivedData = receivedData.slice(endByteIndex + 1);
-    } else {
-      // No more complete messages to process, exit the loop for now
-      break;
-    }
-  }
-});
-
-const speedViolationCleared = (playerIndex: number) => {
-  delete speedBans[playerIndex].currentTimeout;
-  if (speedBans[playerIndex].lastRecordedSpeed != null) {
-    writeSpeed(speedBans[playerIndex].lastRecordedSpeed!, playerIndex == 0);
-  }
-};
-
-const commitSpeedViolation = (playerIndex: number) => {
-  emitSpeedViolationMessage(SLOW_DOWN_LENGTH, playerIndex);
-  writeSpeed(SPEED_BAN_SPEED, playerIndex == 0);
-};
-
+const gameServer = new RwgGame(generateConfig(), httpServer, app, io);
 const emitLapUpdate = (playerIndex: number) => {
   const player = gameServer.currentMatch.getPlayers()[playerIndex];
 
@@ -180,8 +38,8 @@ const emitLapUpdate = (playerIndex: number) => {
 };
 
 const emitSpeedViolationMessage = (
-  secondsRemaining: number,
-  playerIndex: number
+  playerIndex: number,
+  secondsRemaining: number
 ) => {
   const message =
     secondsRemaining === 0
@@ -198,61 +56,13 @@ const emitSpeedViolationMessage = (
 
   if (secondsRemaining-- > 0) {
     speedBans[playerIndex].currentTimeout = setTimeout(() => {
-      emitSpeedViolationMessage(secondsRemaining, playerIndex);
+      emitSpeedViolationMessage(playerIndex, secondsRemaining); // recursively call this function until timer ends
     }, 1000);
   }
 
   if (secondsRemaining == -1) {
-    // the penalty has been cleared
-    speedViolationCleared(playerIndex);
+    eventEmitter.emit(EVENTS.VIOLATED_CLEARED, playerIndex);
   }
-};
-
-const processMessage = (message: Uint8Array) => {
-  const isPlayer1 = message[0] % 2 == 1;
-  const playerIndex = isPlayer1 ? 0 : 1;
-  const event = message[0] - playerIndex;
-  switch (event) {
-    case SERIAL_EVENT_KEYS.SPEED_VIOLATION:
-      if (speedBans[playerIndex].currentTimeout == undefined) {
-        commitSpeedViolation(playerIndex);
-      }
-      break;
-
-    case SERIAL_EVENT_KEYS.CAR_DISMOUNT:
-      console.log("car has derailed");
-      break;
-
-    case SERIAL_EVENT_KEYS.LAP_COMPLETE:
-      emitLapUpdate(playerIndex);
-
-      break;
-    case SERIAL_EVENT_KEYS.DIAGNOSTIC:
-      // console.log(JSON.parse(new TextDecoder().decode(message)));
-      break;
-    default:
-      console.log(`Unknown event key ${message[0]}`);
-      console.log(new TextDecoder().decode(message));
-      break;
-  }
-};
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-serialPort.on("error", (err: any) => {
-  console.error("Serial port error:", err.message);
-});
-
-serialPort.on("open", () => {
-  console.log("Serial port opened");
-});
-
-const SERIAL_EVENT_KEYS = {
-  CONTROL: 0x01,
-  SPEED_VIOLATION: 0x03,
-  CAR_DISMOUNT: 0x05,
-  LAP_COMPLETE: 0x07,
-  DIAGNOSTIC: 0x09,
-  FINISH_MESSAGE: 0x0a,
 };
 
 gameServer.on(RWG_EVENT.MATCH_STATE_CHANGE, (newState, match) => {
@@ -273,45 +83,13 @@ gameServer.on(RWG_EVENT.MATCH_STATE_CHANGE, (newState, match) => {
     newState === MATCH_STATE.COMPLETED ||
     newState === MATCH_STATE.WAITING_FOR_PLAYERS
   ) {
-    const buffer = Buffer.alloc(6); // stop the cars
-    buffer[0] = SERIAL_EVENT_KEYS.CONTROL;
-    buffer[1] = 0x00;
-    buffer[2] = SERIAL_EVENT_KEYS.FINISH_MESSAGE;
-    buffer[3] = SERIAL_EVENT_KEYS.CONTROL + 1;
-    buffer[4] = 0x00;
-    buffer[5] = SERIAL_EVENT_KEYS.FINISH_MESSAGE;
-    serialPort.write(buffer);
+    stopCars();
   }
 });
-
-const writeSpeed = (value: number, isPlayer1: boolean) => {
-  const buffer = Buffer.alloc(3);
-  buffer[0] = SERIAL_EVENT_KEYS.CONTROL + +!isPlayer1; // add one if not player1
-  buffer[1] = new Uint8Array([value])[0];
-  buffer[2] = SERIAL_EVENT_KEYS.FINISH_MESSAGE;
-  serialPort.write(buffer);
-};
-
-const onControl = async (
-  controlEvent: ControlEvent | ControlEvent[],
-  isPlayer1: boolean
-) => {
-  const controls: ControlEvent[] = Array.isArray(controlEvent)
-    ? controlEvent
-    : [controlEvent];
-  const playerIndex = isPlayer1 ? 0 : 1;
-
-  controls.forEach((control) => {
-    if (control.controlName == "control-slider") {
-      speedBans[isPlayer1 ? 0 : 1].lastRecordedSpeed = control.value; // save this incase this exceeds the threshold
-      if (speedBans[playerIndex].currentTimeout == null) {
-        // write if the player is not currently speed banned
-        writeSpeed(control.value, isPlayer1);
-      }
-    }
-  });
-};
 
 httpServer.listen(80, () => {
   console.log("Server Started");
 });
+
+eventEmitter.on(EVENTS.LAP_UPDATE, emitLapUpdate);
+eventEmitter.on(EVENTS.SPEEDING_VIOLATION, emitSpeedViolationMessage);

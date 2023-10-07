@@ -4,7 +4,6 @@ import { Server as SocketServer } from "socket.io";
 import cors from "cors";
 import http from "http";
 import generateConfig from "./game-config";
-import { stopCars } from "./serial-handler";
 import { EVENTS, eventEmitter } from "./event-listener";
 import { lapCounter, speedBans } from "./globals";
 import "./control-handler";
@@ -78,12 +77,6 @@ gameServer.on(RWG_EVENT.MATCH_STATE_CHANGE, (newState, match) => {
         },
       })
     );
-  }
-  if (
-    newState === MATCH_STATE.COMPLETED ||
-    newState === MATCH_STATE.WAITING_FOR_PLAYERS
-  ) {
-    stopCars();
   }
 });
 

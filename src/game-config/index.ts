@@ -1,5 +1,8 @@
 import { CONTROL_TYPE, ELEMENT_TYPE, RwgConfig } from "@OlliePugh/rwg-game";
 import { EVENTS, eventEmitter } from "../event-listener";
+import { writeSpeed } from "../serial-handler";
+import { SPEED_BAN_SPEED } from "../globals";
+// import { SPEED_BAN_SPEED } from "../globals";
 
 const generateConfig = (): RwgConfig => ({
   id: "slot-cars",
@@ -8,7 +11,19 @@ const generateConfig = (): RwgConfig => ({
   name: "Slot Car Racing",
   authenticationRequired: false,
   gamePreparator: (done) => {
-    done();
+    writeSpeed(SPEED_BAN_SPEED, true);
+    writeSpeed(SPEED_BAN_SPEED, false);
+
+    const backAtStart = [false, false];
+    const listener = (playerIndex: number) => {
+      writeSpeed(0, playerIndex == 0); // stop the car
+      backAtStart[playerIndex] = true;
+      if (backAtStart.every((x) => x)) {
+        eventEmitter.off(EVENTS.LAP_UPDATE, listener); // Remove the listener
+        done();
+      }
+    };
+    eventEmitter.on(EVENTS.LAP_UPDATE, listener);
   },
   // timeLimit: 60,
   userInterface: [

@@ -55,7 +55,7 @@ const processMessage = (message: Uint8Array) => {
       break;
 
     case SERIAL_EVENT_KEYS.CAR_DISMOUNT:
-      console.log("car has derailed");
+      // console.log("car has derailed");
       break;
 
     case SERIAL_EVENT_KEYS.LAP_COMPLETE:

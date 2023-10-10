@@ -1,6 +1,6 @@
 import express from "express";
 import { MATCH_STATE, RWG_EVENT, RwgGame } from "@OlliePugh/rwg-game";
-import { Server as SocketServer } from "socket.io";
+import { Socket, Server as SocketServer } from "socket.io";
 import cors from "cors";
 import http from "http";
 import generateConfig from "./game-config";
@@ -16,11 +16,20 @@ app.use(
   })
 );
 
+// Serve static files from the "public" directory
+app.use(express.static("public"));
+
 const httpServer = http.createServer(app);
 const io = new SocketServer(httpServer, {
   cors: {
     origin: "https://play.ollieq.co.uk",
   },
+});
+
+const adminNamespace = io.of("/admin");
+
+adminNamespace.on("connection", () => {
+  console.log("someone connected");
 });
 
 const gameServer = new RwgGame(generateConfig(), httpServer, app, io);
@@ -34,6 +43,16 @@ const emitLapUpdate = (playerIndex: number) => {
       },
     },
   });
+};
+
+const emitDiagnostic = (diagnostic: {
+  c1: number;
+  c2: number;
+  s1: number;
+  s2: number;
+}) => {
+  console.log(diagnostic);
+  io.of("/admin").emit("diagnostic", diagnostic);
 };
 
 const emitSpeedViolationMessage = (
@@ -86,3 +105,4 @@ httpServer.listen(80, () => {
 
 eventEmitter.on(EVENTS.LAP_UPDATE, emitLapUpdate);
 eventEmitter.on(EVENTS.SPEEDING_VIOLATION, emitSpeedViolationMessage);
+eventEmitter.on(EVENTS.DIAGNOSTIC, emitDiagnostic);

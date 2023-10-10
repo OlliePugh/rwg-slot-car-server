@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socket.io Client</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <!-- Include Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <h1>Socket.io Client</h1>
+
+
+
+    <!-- Add a canvas element for the first graph (s1 and c1) -->
+    <canvas id="graph1" width="200" height="100"></canvas>
+
+    <!-- Add a canvas element for the second graph (s2 and c2) -->
+    <canvas id="graph2" width="200" height="100"></canvas>
+
+
+    <!-- Example: Button to send data to the server -->
+    <button id="send-button">Send Data to Server</button>
+
+    <script>
+        // Dynamically determine the server address based on the current page's origin
+        const serverUrl = `${window.location.origin}/admin`;
+        const socket = io(serverUrl);
+
+        // Initialize empty arrays to store data points for each data series
+        const c1DataPoints = [];
+        const c2DataPoints = [];
+        const s1DataPoints = [];
+        const s2DataPoints = [];
+
+        // Initialize Chart.js line charts for each graph
+        const ctx1 = document.getElementById('graph1').getContext('2d');
+        const graph1 = new Chart(ctx1, {
+            type: 'line',
+            data: {
+                labels: [], // X-axis labels
+                datasets: [
+                    {
+                        label: 'c1',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1,
+                        data: [], // Y-axis data for c1
+                        fill: false
+                    },
+                    {
+                        label: 's1',
+                        borderColor: 'rgba(255, 0, 0, 1)',
+                        borderWidth: 1,
+                        data: [], // Y-axis data for s1
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                animation: false,
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Value'
+                        }
+                    }
+                }
+            }
+        });
+
+        const ctx2 = document.getElementById('graph2').getContext('2d');
+        const graph2 = new Chart(ctx2, {
+            type: 'line',
+            data: {
+                labels: [], // X-axis labels
+                datasets: [
+                    {
+                        label: 'c2',
+                        borderColor: 'rgba(0, 128, 0, 1)',
+                        borderWidth: 1,
+                        data: [], // Y-axis data for c2
+                        fill: false
+                    },
+                    {
+                        label: 's2',
+                        borderColor: 'rgba(128, 0, 128, 1)',
+                        borderWidth: 1,
+                        data: [], // Y-axis data for s2
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                animation: false,
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: 'Value'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Function to update the line graph with new data for graph1 (s1 and c1)
+        function updateGraph1(newData) {
+            // Add new data points to the respective data series
+            c1DataPoints.push(newData.c1);
+            s1DataPoints.push(newData.s1);
+
+            // Limit the number of data points displayed to a maximum of 100
+            const maxDataPoints = 100;
+            if (c1DataPoints.length > maxDataPoints) {
+                c1DataPoints.shift();
+                s1DataPoints.shift();
+            }
+
+            // Update the chart data for graph1
+            graph1.data.labels = Array.from({ length: c1DataPoints.length }, (_, i) => i);
+            graph1.data.datasets[0].data = c1DataPoints.slice(-maxDataPoints);
+            graph1.data.datasets[1].data = s1DataPoints.slice(-maxDataPoints);
+
+            // Update the chart for graph1
+            graph1.update();
+        }
+
+        // Function to update the line graph with new data for graph2 (s2 and c2)
+        function updateGraph2(newData) {
+            // Add new data points to the respective data series
+            c2DataPoints.push(newData.c2);
+            s2DataPoints.push(newData.s2);
+
+            // Limit the number of data points displayed to a maximum of 100
+            const maxDataPoints = 100;
+            if (c2DataPoints.length > maxDataPoints) {
+                c2DataPoints.shift();
+                s2DataPoints.shift();
+            }
+
+            // Update the chart data for graph2
+            graph2.data.labels = Array.from({ length: c2DataPoints.length }, (_, i) => i);
+            graph2.data.datasets[0].data = c2DataPoints.slice(-maxDataPoints);
+            graph2.data.datasets[1].data = s2DataPoints.slice(-maxDataPoints);
+
+            // Update the chart for graph2
+            graph2.update();
+        }
+
+        socket.on('connect', () => {
+            console.log('Connected to Socket.io server on admin namespace');
+        });
+
+        socket.on('diagnostic', (data) => {
+            console.log('Received data from server:', data);
+            updateGraph1(data); // Update graph1 (s1 and c1)
+            updateGraph2(data); // Update graph2 (s2 and c2)
+        });
+
+        // Example: Send data to the server when a button is clicked
+        document.getElementById('send-button').addEventListener('click', () => {
+            const message = 'Hello, Server!';
+            socket.emit('admin-event', message);
+        });
+    </script>
+
+</body>
+
+</html>

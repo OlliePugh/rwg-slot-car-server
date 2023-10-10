@@ -62,7 +62,10 @@ const processMessage = (message: Uint8Array) => {
       eventEmitter.emit(EVENTS.LAP_UPDATE, playerIndex);
       break;
     case SERIAL_EVENT_KEYS.DIAGNOSTIC:
-      // console.log(JSON.parse(new TextDecoder().decode(message)));
+      eventEmitter.emit(
+        EVENTS.DIAGNOSTIC,
+        JSON.parse(new TextDecoder().decode(message))
+      );
       break;
     default:
       console.log(`Unknown event key ${message[0]}`);

@@ -6,6 +6,7 @@ export enum EVENTS {
   SPEEDING_VIOLATION = "speed_violation",
   VIOLATED_CLEARED = "violation_cleared",
   DIAGNOSTIC = "diagnostic",
+  AUTONOMOUS_TOGGLE = "autonomous_toggle",
 }
 
 export const eventEmitter = new EventEmitter();

@@ -13,6 +13,8 @@ const SERIAL_EVENT_KEYS = {
   CAR_DISMOUNT: 0x05,
   LAP_COMPLETE: 0x07,
   DIAGNOSTIC: 0x09,
+  ENABLE_AI: 0x11,
+  DISABLE_AI: 0x13,
   FINISH_MESSAGE: 0x0a,
 };
 
@@ -115,5 +117,21 @@ const commitSpeedViolation = (playerIndex: number) => {
   writeSpeed(SPEED_BAN_SPEED, playerIndex == 0);
 };
 
+export const autonomousToggle = ({
+  enabled,
+  car,
+}: {
+  enabled: boolean;
+  car: number;
+}) => {
+  const buffer = Buffer.alloc(2);
+  buffer[0] =
+    (enabled ? SERIAL_EVENT_KEYS.ENABLE_AI : SERIAL_EVENT_KEYS.DISABLE_AI) +
+    +!(car === 1); // add one if not player1
+  buffer[1] = SERIAL_EVENT_KEYS.FINISH_MESSAGE;
+  serialPort.write(buffer);
+};
+
 eventEmitter.on(EVENTS.VIOLATED_CLEARED, speedViolationCleared);
 eventEmitter.on(EVENTS.SPEEDING_VIOLATION, commitSpeedViolation);
+eventEmitter.on(EVENTS.AUTONOMOUS_TOGGLE, autonomousToggle);

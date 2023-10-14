@@ -8,27 +8,59 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <!-- Include Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .canvas-container {
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+        }
+    </style>
 </head>
 
 <body>
-    <h1>Socket.io Client</h1>
-
-
-
-    <!-- Add a canvas element for the first graph (s1 and c1) -->
-    <canvas id="graph1" width="200" height="100"></canvas>
-
-    <!-- Add a canvas element for the second graph (s2 and c2) -->
-    <canvas id="graph2" width="200" height="100"></canvas>
-
-
-    <!-- Example: Button to send data to the server -->
+    <h1>Admin Panel</h1>
+    <input id="player-1-autonomous" value="1" type="checkbox">Player 1 Autonomous </input>
+    <input id="player-2-autonomous" value="2" type="checkbox">Player 2 Autonomous </input>
     <button id="send-button">Send Data to Server</button>
+
+    <div class="canvas-container">
+        <div style="width: 600px;">
+            <!-- Add a canvas element for the first graph (s1 and c1) -->
+            <canvas id="graph1"></canvas>
+        </div>
+        <div style="width: 600px;">
+            <!-- Add a canvas element for the second graph (s2 and c2) -->
+            <canvas id="graph2"></canvas>
+        </div>
+    </div>
 
     <script>
         // Dynamically determine the server address based on the current page's origin
         const serverUrl = `${window.location.origin}/admin`;
         const socket = io(serverUrl);
+
+        function emitAutonomousToggle(element) {
+            socket.emit("toggle_autonomous", { enabled: element.checked, car: Number(element.value) })
+            console.log({ enabled: element.checked, car: element.value });
+        }
+
+        // Event listener for the Player 1 Autonomous checkbox
+        const player1AutonomousCheckbox = document.getElementById('player-1-autonomous');
+        player1AutonomousCheckbox.addEventListener('change', function () {
+            emitAutonomousToggle(player1AutonomousCheckbox)
+        });
+
+        // Event listener for the Player 2 Autonomous checkbox
+        const player2AutonomousCheckbox = document.getElementById('player-2-autonomous');
+        player2AutonomousCheckbox.addEventListener('change', function () {
+            emitAutonomousToggle(player2AutonomousCheckbox)
+        });
 
         // Initialize empty arrays to store data points for each data series
         const c1DataPoints = [];
@@ -60,6 +92,7 @@
                 ]
             },
             options: {
+                responsive: true,
                 animation: false,
                 scales: {
                     x: {
@@ -79,6 +112,7 @@
                 }
             }
         });
+
 
         const ctx2 = document.getElementById('graph2').getContext('2d');
         const graph2 = new Chart(ctx2, {
@@ -103,6 +137,7 @@
                 ]
             },
             options: {
+                responsive: true,
                 animation: false,
                 scales: {
                     x: {
@@ -129,8 +164,8 @@
             c1DataPoints.push(newData.c1);
             s1DataPoints.push(newData.s1);
 
-            // Limit the number of data points displayed to a maximum of 100
-            const maxDataPoints = 100;
+            // Limit the number of data points displayed to a maximum of 20
+            const maxDataPoints = 20;
             if (c1DataPoints.length > maxDataPoints) {
                 c1DataPoints.shift();
                 s1DataPoints.shift();
@@ -151,8 +186,8 @@
             c2DataPoints.push(newData.c2);
             s2DataPoints.push(newData.s2);
 
-            // Limit the number of data points displayed to a maximum of 100
-            const maxDataPoints = 100;
+            // Limit the number of data points displayed to a maximum of 20
+            const maxDataPoints = 20;
             if (c2DataPoints.length > maxDataPoints) {
                 c2DataPoints.shift();
                 s2DataPoints.shift();

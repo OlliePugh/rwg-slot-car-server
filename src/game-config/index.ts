@@ -1,8 +1,6 @@
 import { CONTROL_TYPE, ELEMENT_TYPE, RwgConfig } from "@OlliePugh/rwg-game";
 import { EVENTS, eventEmitter } from "../event-listener";
-import { writeSpeed } from "../serial-handler";
-import { SPEED_BAN_SPEED } from "../globals";
-// import { SPEED_BAN_SPEED } from "../globals";
+import { autonomousToggle, writeSpeed } from "../serial-handler";
 
 const generateConfig = (): RwgConfig => ({
   id: "slot-cars",
@@ -11,11 +9,12 @@ const generateConfig = (): RwgConfig => ({
   name: "Slot Car Racing",
   authenticationRequired: false,
   gamePreparator: (done) => {
-    writeSpeed(SPEED_BAN_SPEED, true);
-    writeSpeed(SPEED_BAN_SPEED, false);
+    autonomousToggle({ enabled: true, car: 1 });
+    autonomousToggle({ enabled: true, car: 2 });
 
     const backAtStart = [false, false];
     const listener = (playerIndex: number) => {
+      autonomousToggle({ enabled: false, car: playerIndex + 1 });
       writeSpeed(0, playerIndex == 0); // stop the car
       backAtStart[playerIndex] = true;
       if (backAtStart.every((x) => x)) {

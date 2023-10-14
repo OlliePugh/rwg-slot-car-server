@@ -28,8 +28,11 @@ const io = new SocketServer(httpServer, {
 
 const adminNamespace = io.of("/admin");
 
-adminNamespace.on("connection", () => {
-  console.log("someone connected");
+adminNamespace.on("connection", (socket: Socket) => {
+  console.log("Admin connected");
+  socket.on("toggle_autonomous", (props: { enabled: boolean; car: number }) => {
+    eventEmitter.emit(EVENTS.AUTONOMOUS_TOGGLE, props);
+  });
 });
 
 const gameServer = new RwgGame(generateConfig(), httpServer, app, io);
@@ -51,7 +54,6 @@ const emitDiagnostic = (diagnostic: {
   s1: number;
   s2: number;
 }) => {
-  console.log(diagnostic);
   io.of("/admin").emit("diagnostic", diagnostic);
 };
 
@@ -68,6 +70,7 @@ const emitSpeedViolationMessage = (
     "speed-violation-text": {
       extraData: {
         message,
+        color: "#ff0000",
       },
     },
   });

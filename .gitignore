@@ -5,3 +5,4 @@ node_modules
 *.pem
 src/index.js
 dist/
+*.env

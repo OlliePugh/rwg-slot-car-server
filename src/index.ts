@@ -6,18 +6,20 @@ import http from "http";
 import generateConfig from "./game-config";
 import { EVENTS, eventEmitter } from "./event-listener";
 import { lapCounter, speedBans } from "./globals";
+import "dotenv/config";
 import "./control-handler";
+import { randomUUID } from "crypto";
 
+const secretKey = randomUUID();
 const app = express();
+// set the view engine to ejs
+app.set("view engine", "ejs");
 
 app.use(
   cors({
     origin: "https://play.ollieq.co.uk",
   })
 );
-
-// Serve static files from the "public" directory
-app.use(express.static("public"));
 
 const httpServer = http.createServer(app);
 const io = new SocketServer(httpServer, {
@@ -29,13 +31,44 @@ const io = new SocketServer(httpServer, {
 const adminNamespace = io.of("/admin");
 
 adminNamespace.on("connection", (socket: Socket) => {
+  if (socket.handshake.query.secret != secretKey) {
+    socket.disconnect();
+  }
   console.log("Admin connected");
   socket.on("toggle_autonomous", (props: { enabled: boolean; car: number }) => {
     eventEmitter.emit(EVENTS.AUTONOMOUS_TOGGLE, props);
   });
+
+  socket.on("kick_player", (playerIndex: number) => {
+    gameServer.currentMatch.getPlayers()[
+      // eslint-disable-next-line no-unexpected-multiline
+      playerIndex - 1
+    ]?.kick();
+  });
 });
 
 const gameServer = new RwgGame(generateConfig(), httpServer, app, io);
+
+// require auth for admin page
+app.use((req, res, next) => {
+  const auth = {
+    login: "admin",
+    password: process.env.SECRET,
+  };
+  const [, b64auth = ""] = (req.headers.authorization || "").split(" ");
+  const [login, password] = Buffer.from(b64auth, "base64")
+    .toString()
+    .split(":");
+  if (login && password && login === auth.login && password === auth.password) {
+    return next();
+  }
+  res.set("WWW-Authenticate", 'Basic realm="401"');
+  res.status(401).send("Authentication required.");
+});
+app.get("/admin", (_, res) => {
+  res.render("admin.ejs", { secret: secretKey });
+});
+
 const emitLapUpdate = (playerIndex: number) => {
   const player = gameServer.currentMatch.getPlayers()[playerIndex];
 
@@ -64,7 +97,7 @@ const emitSpeedViolationMessage = (
   const message =
     secondsRemaining === 0
       ? ""
-      : `VIRTUAL SPIN OFF!\nRegain controls in ${secondsRemaining}`;
+      : `YOU WENT TOO FAST!\nVIRTUAL SPIN OFF!\nRegain controls in ${secondsRemaining}`;
 
   gameServer.currentMatch.getPlayers()[playerIndex]?.updateUserInterface({
     "speed-violation-text": {

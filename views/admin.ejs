@@ -27,7 +27,8 @@
     <h1>Admin Panel</h1>
     <input id="player-1-autonomous" value="1" type="checkbox">Player 1 Autonomous </input>
     <input id="player-2-autonomous" value="2" type="checkbox">Player 2 Autonomous </input>
-    <button id="send-button">Send Data to Server</button>
+    <button id="kick-player-1">Kick Player 1</button>
+    <button id="kick-player-2">Kick Player 2</button>
 
     <div class="canvas-container">
         <div style="width: 600px;">
@@ -43,7 +44,11 @@
     <script>
         // Dynamically determine the server address based on the current page's origin
         const serverUrl = `${window.location.origin}/admin`;
-        const socket = io(serverUrl);
+        const socket = io(serverUrl, {
+            query: {
+                secret: "<%= secret %>"
+            }
+        });
 
         function emitAutonomousToggle(element) {
             socket.emit("toggle_autonomous", { enabled: element.checked, car: Number(element.value) })
@@ -213,9 +218,11 @@
         });
 
         // Example: Send data to the server when a button is clicked
-        document.getElementById('send-button').addEventListener('click', () => {
-            const message = 'Hello, Server!';
-            socket.emit('admin-event', message);
+        document.getElementById('kick-player-1').addEventListener('click', () => {
+            socket.emit('kick_player', 1);
+        });
+        document.getElementById('kick-player-2').addEventListener('click', () => {
+            socket.emit('kick_player', 2);
         });
     </script>
 
